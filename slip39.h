@@ -62,6 +62,38 @@
 #define BITS_TO_BYTES(n) ((n+7)/8)
 #define BITS_TO_WORDS(n) ((n+RADIX_BITS-1)/RADIX_BITS)
 
+// decode
+typedef struct __group_share {
+    uint8_t group_idx;
+    uint8_t threshold;
+    uint8_t** share_value;
+    uint8_t* share_value_len;
+    uint8_t member_num;
+} group_share;
+
+typedef struct __all_shares {
+    uint16_t id;
+    uint8_t exp;
+    
+    uint8_t group_threshod;
+    uint8_t group_count;
+    group_share* group_shares;
+    uint8_t group_num;
+} all_shares;
+
+typedef struct __share_format {
+    uint16_t id;
+    uint8_t exp;
+    uint8_t group_idx;
+    uint8_t group_threshod;
+    uint8_t group_count;
+    uint8_t member_idx;
+    uint8_t member_threshod;
+    uint8_t* share_value;
+    uint8_t share_value_len;
+}share_format;
+
+// encode 
 typedef struct __mnemonic_string {
     uint8_t mnemonic[MNEMONIC_MAX_LEN+1];
 } mnemonic_string;
@@ -83,7 +115,7 @@ int generate_mnemonic_shares(uint8_t* master_secret, uint16_t ms_len,
                               uint8_t iter_exponent, 
                               _out mnemonic_string** mnemonic_shares);
 
-
+int combin_mnemonics(mnemonic_string* mnemonic_shares, uint8_t* passphrase);
 
 #define E_OK 0
 #define E_SECRET_SIZE       -1

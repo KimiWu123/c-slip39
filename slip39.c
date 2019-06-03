@@ -5,7 +5,6 @@
 #include "slip39_English.h"
 #include "slip39.h"
 #include "util.h"
-// #include "sss.h"
 
 
 // RS-1024
@@ -59,6 +58,24 @@ uint32_t _rs1024_create_checksum(uint16_t* data, uint8_t data_len, _out uint16_t
     }
     memzero(values, values_len); free(values);
     return checksum;
+}
+
+uint8_t rs1024_verify_checksum(uint16_t* data, uint8_t data_len)
+{
+    uint8_t values_len = strlen(CUSTOMIZATION_STRING) + data_len;
+    uint16_t* values = malloc(values_len*sizeof(uint16_t));
+    memzero(values, values_len*sizeof(uint16_t));
+
+    for(uint8_t i=0; i<strlen(CUSTOMIZATION_STRING); i++) {
+        values[i] = CUSTOMIZATION_STRING[i];
+    }
+    for(uint8_t i=0; i<data_len; i++){
+        values[i+strlen(CUSTOMIZATION_STRING)] = data[i];
+    }
+    uint8_t ret = rs1024_polymod(values, values_len) == 1;
+
+    memzero(values, values_len*sizeof(uint16_t)); free(values);
+    return ret;
 }
 
 
@@ -153,9 +170,9 @@ void _int_to_indices(uint8_t* data, uint16_t word_len, uint8_t bits, _out uint16
         memcpy(&value, data+i, sizeof(value));
         value = be32toh(value);
         // dlog("value: %08x", value);
-        uint8_t comp_bits = (sizeof(uint8_t)*8 - last_left) %8;
+        uint8_t comp_bits = (sizeof(uint8_t)*8 - last_left) % 8;
         
-        for(int j=1; j<4; j++){
+        for(uint8_t j=1; j<4; j++){
             int8_t shift = sizeof(value)*8- j*bits - comp_bits;
             if(shift < 0) break;
             last_left = shift;
@@ -163,6 +180,40 @@ void _int_to_indices(uint8_t* data, uint16_t word_len, uint8_t bits, _out uint16
         }
         if(last_left == 0) i++;
     }
+}
+
+void _int_from_indices(uint16_t* indicies, uint8_t indicies_len, 
+                       _out uint8_t* out, uint8_t out_len)
+{
+    uint8_t idx_of_indicies = 0;
+    uint8_t left_bits = 0;
+    dlog("share value: ");
+    for(uint8_t i=0; i<out_len; i++){
+        uint8_t move_bits = 8 - left_bits;
+        uint8_t value = 0;
+        if(move_bits != 0)
+            value = (indicies[idx_of_indicies-1] << move_bits%8) & 0xFF;
+
+        value += (indicies[idx_of_indicies] >> ((RADIX_BITS - move_bits)%8)) & 0xFF;
+        out[i] = value;
+        left_bits = ((idx_of_indicies+1)*RADIX_BITS) % 8;
+        if(move_bits == 0) idx_of_indicies++;
+        printf("%d ", out[i]);
+    }
+    dlog("");
+}
+
+void menmonic_to_indicies(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out uint16_t* indices)
+{
+    for(uint8_t i=0; i<mnemonic_len; i++) {
+        for(uint16_t j=0; i<1024; j++) {
+            if(strcmp(mnemonic_str[i].mnemonic, wordlist[j]) == 0) {
+                indices[i] = j; break;
+            }
+        }
+        printf("%d ", i);
+    }
+    dlog("");
 }
 
 #define MASK_ID_LOW 0x001F
@@ -188,7 +239,7 @@ int _encode_mnemonic(uint16_t id, uint8_t iter_exp, uint8_t group_index,
     indices[3] = (member_index<<4) + (member_threshold-1) ;
 
     // padding share:
-    uint8_t padding_len = ps_word_count*10 - ps_len*8;
+    uint8_t padding_len = ps_word_count*RADIX_BITS - ps_len*sizeof(uint8_t);
     uint8_t* ps = malloc(ps_len+1); memzero(ps, ps_len+1);
     ps[0] = ss[0]>>padding_len;
     for(int i=1; i<ps_len+1; i++){
@@ -210,6 +261,71 @@ int _encode_mnemonic(uint16_t id, uint8_t iter_exp, uint8_t group_index,
 
     memzero(ps, ps_len+1); free(ps); 
     memzero(indices, total_words); free(indices); 
+}
+
+int _decode_menmonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out share_format* share)
+{
+    uint16_t* mnemonic_data = malloc(mnemonic_len);
+    menmonic_to_indicies(mnemonic_str, mnemonic_len, mnemonic_data);
+
+    uint8_t padding_len = (RADIX_BITS * (mnemonic_len - METADATA_LENGTH_WORDS))%16;
+    if (padding_len > 8) {
+        dlog("invalid padding len, %d", padding_len);
+        return -1;
+    }
+
+    if(!rs1024_verify_checksum(mnemonic_data, mnemonic_len)){
+        dlog("invalid checksum.");
+        return -1;
+    }
+
+    (*share).id = mnemonic_data[0] & 0x7FFF;
+    (*share).exp = mnemonic_data[1] & 0x3E0;
+    (*share).group_idx = mnemonic_data[1] & 0x0F;
+    (*share).group_threshod = mnemonic_data[2] & 0xF0;
+    (*share).group_count = mnemonic_data[2] & 0x0F;
+    (*share).member_idx = mnemonic_data[3] & 0xF0;
+    (*share).member_threshod = mnemonic_data[3] & 0x0F;
+
+    
+    _int_from_indices(&mnemonic_data[4], mnemonic_len, (*share).share_value, (*share).share_value_len);
+
+    return E_OK;
+}
+
+int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count, 
+                      uint8_t mnemonic_len, _out all_shares* shares)
+{
+    for(uint8_t i=0; i<mnemonics_count; i++) {
+        share_format a_share;
+        _decode_menmonic(mnemonic_str[i], mnemonic_len, &a_share);
+
+        uint8_t member_num = 0;
+        uint8_t group_num = (*shares).group_num;
+        for(uint8_t j=0; j<(*shares).group_num; j++){
+            if((*shares).group_shares[j].group_idx == a_share.group_idx){
+                member_num = (*shares).group_shares[j].member_num;
+            }
+        }
+        if(member_num == 0){
+            group_num ++;
+        }
+
+        (*shares).id = a_share.id;
+        (*shares).exp = a_share.exp;
+        (*shares).group_threshod = a_share.group_threshod;
+
+        (*shares).group_shares[group_num].group_idx = a_share.group_idx;
+        (*shares).group_shares[group_num].threshold = a_share.member_threshod;
+        memcpy((*shares).group_shares[group_num].share_value, a_share.share_value, a_share.share_value_len);
+        (*shares).group_shares[group_num].share_value_len = a_share.share_value_len;
+        (*shares).group_shares[group_num].member_num++;
+
+
+        memzero(a_share);
+    }
+
+    return E_OK;
 }
 
 // SSS
@@ -357,7 +473,12 @@ int _split_shares( uint8_t threshold, uint8_t share_count,
     return E_OK;
 }
 
+int combin_mnemonics(mnemonic_string* mnemonic_shares, uint8_t* passphrase)
+{
 
+    dlog("done!");
+    return E_OK;
+}
 
 int generate_mnemonic_shares(uint8_t* master_secret, uint16_t ms_len,
                               uint8_t* passphrase, uint16_t pp_len,
