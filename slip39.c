@@ -131,7 +131,7 @@ uint16_t _generate_random_id()
 void _encrypt(uint8_t* master_secret, uint16_t ms_len,
               uint8_t* passphrase,    uint16_t pp_len,
               uint8_t iter_exponent, 
-              uint16_t id,  _out uint8_t* cipher)
+              uint16_t id,  _out uint8_t* ems)
 {   
     print_hex("ms: ", master_secret, ms_len);
     print_hex("pp: ", passphrase, pp_len);
@@ -152,12 +152,45 @@ void _encrypt(uint8_t* master_secret, uint16_t ms_len,
         memcpy(l, r, half_ms_len);
         memcpy(r, tmp, half_ms_len);
     }
-    memcpy(cipher, r, half_ms_len);
-    memcpy(cipher+half_ms_len, l, half_ms_len);
+    memcpy(ems, r, half_ms_len);
+    memcpy(ems+half_ms_len, l, half_ms_len);
 
     memzero(tmp, half_ms_len);free(tmp);
     memzero(r, half_ms_len); free(r);
     memzero(l, half_ms_len); free(l);
+}
+
+void _decrypt(uint8_t* en_master_secret, uint16_t en_ms_len,
+              uint8_t* passphrase,    uint16_t pp_len,
+              uint8_t iter_exponent, 
+              uint16_t id,  _out uint8_t* master_secret)
+{
+    print_hex("ems: ", en_master_secret, en_ms_len);
+    print_hex("pp: ", passphrase, pp_len);
+    const uint8_t salt_len = strlen(CUSTOMIZATION_STRING)+sizeof(id);
+    uint8_t salt[salt_len];
+    _get_salt(id, &salt);
+
+    uint8_t half_ms_len = en_ms_len/2;
+    uint8_t* l = malloc(half_ms_len); memzero(l, half_ms_len);
+    uint8_t* r = malloc(half_ms_len); memzero(r, half_ms_len);
+    uint8_t* tmp = malloc(half_ms_len); memzero(tmp, half_ms_len);
+    memcpy(l, master_secret, half_ms_len);
+    memcpy(r, master_secret+half_ms_len, half_ms_len);
+
+    for(uint8_t i=ROUND_COUNT; i>0; i--) {
+        _round_function(i, passphrase, iter_exponent, &salt, salt_len, r, half_ms_len, tmp);
+        _xor(l, tmp, half_ms_len, tmp);
+        memcpy(l, r, half_ms_len);
+        memcpy(r, tmp, half_ms_len);
+    }
+    memcpy(master_secret, r, half_ms_len);
+    memcpy(master_secret+half_ms_len, l, half_ms_len);
+
+    memzero(tmp, half_ms_len);free(tmp);
+    memzero(r, half_ms_len); free(r);
+    memzero(l, half_ms_len); free(l);
+
 }
 
 void _int_to_indices(uint8_t* data, uint16_t word_len, uint8_t bits, _out uint16_t* out)
@@ -265,6 +298,10 @@ int _encode_mnemonic(uint16_t id, uint8_t iter_exp, uint8_t group_index,
 
 int _decode_menmonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out share_format* share)
 {
+    dlog("decode: ");
+    for(int i=0; i<mnemonic_len; i++){
+        printf("%s ", mnemonic_str[i].mnemonic);
+    }
     uint16_t* mnemonic_data = malloc(mnemonic_len);
     menmonic_to_indicies(mnemonic_str, mnemonic_len, mnemonic_data);
 
@@ -296,35 +333,47 @@ int _decode_menmonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out s
 int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count, 
                       uint8_t mnemonic_len, _out all_shares* shares)
 {
+    dlog("decode: count:%d, len:%d", mnemonics_count, mnemonic_len);
+    uint8_t group_num = (*shares).group_num;
     for(uint8_t i=0; i<mnemonics_count; i++) {
         share_format a_share;
         _decode_menmonic(mnemonic_str[i], mnemonic_len, &a_share);
 
         uint8_t member_num = 0;
-        uint8_t group_num = (*shares).group_num;
         for(uint8_t j=0; j<(*shares).group_num; j++){
             if((*shares).group_shares[j].group_idx == a_share.group_idx){
                 member_num = (*shares).group_shares[j].member_num;
             }
         }
         if(member_num == 0){
-            group_num ++;
+            group_num++;
         }
 
         (*shares).id = a_share.id;
         (*shares).exp = a_share.exp;
         (*shares).group_threshod = a_share.group_threshod;
-
         (*shares).group_shares[group_num].group_idx = a_share.group_idx;
         (*shares).group_shares[group_num].threshold = a_share.member_threshod;
-        memcpy((*shares).group_shares[group_num].share_value, a_share.share_value, a_share.share_value_len);
-        (*shares).group_shares[group_num].share_value_len = a_share.share_value_len;
+        
+        if((*shares).group_shares[group_num].share_value == NULL){
+            (*shares).group_shares[group_num].share_value = 
+                malloc((*shares).group_shares[group_num].threshold*sizeof(share_with_x));
+        }
+        share_with_x* share_x = (*shares).group_shares[group_num].share_value;
+        memcpy((*share_x).share, a_share.share_value, a_share.share_value_len);
+        (*share_x).x = a_share.member_idx;
+        (*shares).group_shares[group_num].share_value_len++;//[member_num] = a_share.share_value_len;
         (*shares).group_shares[group_num].member_num++;
-
-
-        memzero(a_share);
+    }
+    (*shares).group_num = group_num;
+    if(group_num < (*shares).group_threshod){
+        dlog("Insufficient number of mnemonic groups, %d. %d is required", group_num, (*shares).group_threshod);
     }
 
+    for(uint8_t i=0; i<group_num; i++) {
+        group_share* a_group_share = &(*shares).group_shares[i];
+
+    }
     return E_OK;
 }
 
@@ -473,8 +522,72 @@ int _split_shares( uint8_t threshold, uint8_t share_count,
     return E_OK;
 }
 
-int combin_mnemonics(mnemonic_string* mnemonic_shares, uint8_t* passphrase)
+int _recover_secret(uint8_t threshold, share_with_x* shares_x, uint8_t shares_len, 
+                    uint16_t a_share_len, _out uint8_t* secret)
 {
+    if(threshold == 1)  {
+        memcpy(secret, shares_x[0].share, a_share_len);
+        dlog("threshod == 1");
+        return E_OK;
+    }
+
+    uint8_t* shared_secret = malloc(a_share_len);
+    uint8_t* digest_share = malloc(a_share_len);
+    _interpolate(shares_x, shares_len, a_share_len, SECRET_INDEX, shared_secret);
+    print_hex("recovered secret: ", shared_secret, a_share_len);
+    _interpolate(shares_x, shares_len, a_share_len, DIGEST_INDEX, digest_share);
+    print_hex("recovered digest share: ", digest_share, a_share_len);
+
+    uint32_t digest=0;
+    uint8_t* random_part = malloc(a_share_len - DIGEST_LENGTH_BYTES);
+    memcpy(&digest, digest_share, DIGEST_LENGTH_BYTES);
+    for(uint8_t i=DIGEST_LENGTH_BYTES; i<a_share_len; i++){
+        random_part[i-DIGEST_LENGTH_BYTES] = digest_share[i];
+    }
+
+    uint32_t digest_v=0;
+    _create_digest(random_part, a_share_len - DIGEST_LENGTH_BYTES, shared_secret, a_share_len, &digest_v);
+    if(digest != digest_v) {
+        dlog("Invalid digest, %x vs %x", digest, digest_v);
+        free(digest_share); free(shared_secret);
+        return -1;
+    }
+    
+    memcpy(secret, shared_secret, a_share_len);
+    free(digest_share); free(shared_secret);
+    return E_OK;
+}
+
+//
+int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count, 
+                     uint8_t mnemonic_len, uint8_t* passphrase, uint8_t pp_len)
+{
+    uint8_t share_value_len = (mnemonic_len-METADATA_LENGTH_WORDS)*RADIX_BITS / 8 ;
+
+    all_shares shares;
+    shares.group_shares = malloc(shares.group_count*sizeof(group_share));
+    
+    _decode_mnemonics(mnemonic_shares, mnemonic_count, mnemonic_len, &shares);
+    share_with_x* group_shares = malloc(shares.group_num*sizeof(share_with_x));
+    for(uint8_t i=0; i<shares.group_num; i++) {
+        group_share* a_group = &shares.group_shares[i];
+        _recover_secret((*a_group).threshold, (*a_group).share_value, (*a_group).share_value_len, 
+                        share_value_len, group_shares[i].share);
+        group_shares[i].x = shares.group_shares[i].group_idx;
+    }
+
+    uint8_t* ems = malloc(share_value_len);
+    _recover_secret(shares.group_shares, group_shares, shares.group_num, share_value_len, &ems);
+    print_hex("ems: ", ems, share_value_len);
+
+    uint8_t* ms = malloc(share_value_len);
+    _decrypt(ems, share_value_len, passphrase, pp_len, shares.exp, shares.id, &ms);
+    print_hex("master secret: ", ms, share_value_len);
+
+    free(ms);
+    free(ems);
+    //TODO free shares.group_shares.share_value
+    free(shares.group_shares);
 
     dlog("done!");
     return E_OK;
@@ -512,7 +625,6 @@ int generate_mnemonic_shares(uint8_t* master_secret, uint16_t ms_len,
         }
     }
 
-    // _precompute_exp_log();
     // dlog("group count:%d", group_len);
     uint16_t id = _generate_random_id();
     dlog("id: 0x%x", id);
