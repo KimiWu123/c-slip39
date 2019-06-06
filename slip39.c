@@ -222,22 +222,23 @@ void _int_to_indices(uint8_t* data, uint16_t word_len, uint8_t bits, _out uint16
 void _int_from_indices(uint16_t* indicies, uint8_t indicies_len, 
                        _out uint8_t* out, uint8_t out_len)
 {
-    uint8_t idx_of_indicies = 0;
-    uint8_t left_bits = 0;
-    for(uint8_t i=0; i<out_len; i++){
+    uint8_t idx_of_indicies = 1;
+    int8_t left_bits = 0;
+    //TODO handle padding...make
+    out[0] = indicies[0] &0xff;
+    for(uint8_t i=1; i<out_len; i++){
         uint8_t move_bits = 8 - left_bits;
-        uint8_t value = 0;
-        if(left_bits != 0){
-            value = (indicies[idx_of_indicies] << move_bits%8) & 0xFF;
-            idx_of_indicies++;
-        }
         // dlog("left_bits:%d, idx:%d", left_bits, idx_of_indicies);
-        
-        value += (indicies[idx_of_indicies] >> ((RADIX_BITS - move_bits)%8)) & 0xFF;
-        out[i] = value;
-        left_bits = ((idx_of_indicies+1)*RADIX_BITS) % 8;
-        if(left_bits == 0) idx_of_indicies++;
-        printf("%x ", out[i]);
+        if(left_bits != 0){
+            out[i] = (indicies[idx_of_indicies] << move_bits) & 0xFF;
+            idx_of_indicies++;
+            if(left_bits%8 == 0) {
+                left_bits=0; continue;
+            }
+        }
+        out[i] += (indicies[idx_of_indicies] >> ((RADIX_BITS - move_bits))) & 0xFF;
+        left_bits = ((idx_of_indicies)*RADIX_BITS) - (i)*8;
+        // printf("%x ", out[i]);
     }
     dlog("");
 }
