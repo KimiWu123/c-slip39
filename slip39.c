@@ -169,8 +169,6 @@ void _decrypt(uint8_t* en_master_secret, uint16_t en_ms_len,
               uint8_t iter_exponent, 
               uint16_t id,  _out uint8_t* master_secret)
 {
-    print_hex("ems: ", en_master_secret, en_ms_len);
-    print_hex("pp: ", passphrase, pp_len);
     const uint8_t salt_len = strlen(CUSTOMIZATION_STRING)+sizeof(id);
     uint8_t salt[salt_len];
     _get_salt(id, &salt);
@@ -179,10 +177,10 @@ void _decrypt(uint8_t* en_master_secret, uint16_t en_ms_len,
     uint8_t* l = malloc(half_ms_len); memzero(l, half_ms_len);
     uint8_t* r = malloc(half_ms_len); memzero(r, half_ms_len);
     uint8_t* tmp = malloc(half_ms_len); memzero(tmp, half_ms_len);
-    memcpy(l, master_secret, half_ms_len);
-    memcpy(r, master_secret+half_ms_len, half_ms_len);
+    memcpy(l, en_master_secret, half_ms_len);
+    memcpy(r, en_master_secret+half_ms_len, half_ms_len);
 
-    for(uint8_t i=ROUND_COUNT; i>0; i--) {
+    for(int8_t i=ROUND_COUNT-1; i>=0; i--) {
         _round_function(i, passphrase, iter_exponent, &salt, salt_len, r, half_ms_len, tmp);
         _xor(l, tmp, half_ms_len, tmp);
         memcpy(l, r, half_ms_len);
@@ -219,20 +217,21 @@ void _int_to_indices(uint8_t* data, uint16_t word_len, uint8_t bits, _out uint16
     }
 }
 
-void _int_from_indices(uint16_t* indicies, uint8_t indicies_len, 
+void _int_from_indices(uint16_t* indicies, uint8_t indicies_len, uint8_t padding_len, 
                        _out uint8_t* out, uint8_t out_len)
 {
-    uint8_t idx_of_indicies = 1;
-    int8_t left_bits = 0;
-    //TODO handle padding...make
-    out[0] = indicies[0] &0xff;
-    for(uint8_t i=1; i<out_len; i++){
+    // dlog("padding len: %d", padding_len);
+    uint8_t idx_of_indicies = 0;
+    int8_t left_bits = RADIX_BITS-padding_len;
+
+    for(uint8_t i=0; i<out_len; i++){
         uint8_t move_bits = 8 - left_bits;
-        // dlog("left_bits:%d, idx:%d", left_bits, idx_of_indicies);
+        // dlog("left_bits:%d, idx:%d/%d", left_bits, idx_of_indicies, indicies[idx_of_indicies]);
         if(left_bits != 0){
             out[i] = (indicies[idx_of_indicies] << move_bits) & 0xFF;
             idx_of_indicies++;
             if(left_bits%8 == 0) {
+                // printf("%x ", out[i]);
                 left_bits=0; continue;
             }
         }
@@ -240,12 +239,13 @@ void _int_from_indices(uint16_t* indicies, uint8_t indicies_len,
         left_bits = ((idx_of_indicies)*RADIX_BITS) - (i)*8;
         // printf("%x ", out[i]);
     }
-    dlog("");
+    // dlog("");
 }
+ 
 
 void mnemonic_to_indicies(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out uint16_t* indices)
 {
-    printf("indicies: ");
+    // printf("indicies: ");
     for(uint8_t i=0; i<mnemonic_len; i++) {
         uint16_t j=0;
         for(; i<1024; j++) {
@@ -253,9 +253,9 @@ void mnemonic_to_indicies(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _
                 indices[i] = j; break;
             }
         }
-        printf("%d ", j);
+        // printf("%d ", j);
     }
-    dlog("");
+    // dlog("");
 }
 
 #define MASK_ID_LOW 0x001F
@@ -329,10 +329,10 @@ int _decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out s
     (*share).group_count = ((indices[2] & 0x03) << 2) + (indices[3]>>8) + 1;
     (*share).member_idx = ((indices[3] & 0xF0) >> 4);// + indices[4]>>8;
     (*share).member_threshod = (indices[3] & 0x0F) + 1;
-    dlog("%d %d %d %d %d %d %d", (*share).id, (*share).exp, (*share).group_idx, 
-    (*share).group_threshod, (*share).group_count, (*share).member_idx, (*share).member_threshod);
+    // dlog("%d %d %d %d %d %d %d", (*share).id, (*share).exp, (*share).group_idx, 
+    // (*share).group_threshod, (*share).group_count, (*share).member_idx, (*share).member_threshod);
 
-    _int_from_indices(&indices[4], mnemonic_len, (*share).share_value, (*share).share_value_len);
+    _int_from_indices(&indices[4], mnemonic_len, padding_len, (*share).share_value, (*share).share_value_len);
 
     return E_OK;
 }
@@ -346,6 +346,7 @@ int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count,
         share_format a_share;
         a_share.share_value_len =  (mnemonic_len-METADATA_LENGTH_WORDS)*RADIX_BITS / 8 ;
         a_share.share_value = malloc(a_share.share_value_len);
+        memzero(a_share.share_value, a_share.share_value_len);
         _decode_mnemonic(mnemonic_str[i], mnemonic_len, &a_share);
 
         uint8_t member_num = 0;
@@ -458,6 +459,7 @@ void _interpolate(share_with_x* shares, uint16_t shares_len,
         for(uint16_t k=0; k<a_share_len; k++) {
             uint8_t share_val = shares[i].share[k];
             intermediate_sum[k] = out[k];
+            // dlog("%d - %d / %d", share_val, intermediate_sum[k], k);
             if(share_val != 0)
                 intermediate_sum[k] ^= EXP_TABLE[(LOG_TABLE[share_val]+log_basis_eval)%255];
             else 
@@ -466,7 +468,6 @@ void _interpolate(share_with_x* shares, uint16_t shares_len,
         memcpy(out, intermediate_sum, a_share_len);
         memzero(intermediate_sum, a_share_len); free(intermediate_sum);
     }
-
     memzero(x_coord, shares_len); free(x_coord);
 }
 
@@ -552,7 +553,9 @@ int _recover_secret(uint8_t threshold, share_with_x* shares_x, uint8_t shares_le
     }
 
     uint8_t* shared_secret = malloc(a_share_len);
+    memzero(shared_secret, a_share_len);
     uint8_t* digest_share = malloc(a_share_len);
+    memzero(digest_share, a_share_len);
     _interpolate(shares_x, shares_len, a_share_len, SECRET_INDEX, shared_secret);
     print_hex("recovered secret: ", shared_secret, a_share_len);
     _interpolate(shares_x, shares_len, a_share_len, DIGEST_INDEX, digest_share);
@@ -590,6 +593,7 @@ int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count,
     
     _decode_mnemonics(mnemonic_shares, mnemonic_count, mnemonic_len, &shares);
     share_with_x* group_shares = malloc(shares.group_num*sizeof(share_with_x));
+    dlog("group numbers: %d", shares.group_num);
     for(uint8_t i=0; i<shares.group_num; i++) {
         group_share a_group = shares.group_shares[i];
         _recover_secret(a_group.threshold, a_group.share_value, a_group.share_value_len, 
@@ -598,16 +602,20 @@ int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count,
     }
 
     uint8_t* ems = malloc(share_value_len);
-    _recover_secret(shares.group_shares, group_shares, shares.group_num, share_value_len, &ems);
+    memzero(ems, share_value_len);
+    _recover_secret(shares.group_threshod, group_shares, shares.group_num, share_value_len, ems);
     print_hex("ems: ", ems, share_value_len);
 
     uint8_t* ms = malloc(share_value_len);
-    _decrypt(ems, share_value_len, passphrase, pp_len, shares.exp, shares.id, &ms);
+    memzero(ms, share_value_len);
+    _decrypt(ems, share_value_len, passphrase, pp_len, shares.exp, shares.id, ms);
     print_hex("master secret: ", ms, share_value_len);
 
     free(ms);
     free(ems);
-    //TODO free shares.group_shares.share_value
+    for(uint8_t i=0; i<shares.group_num; i++) {
+        free(shares.group_shares[i].share_value);
+    }
     free(shares.group_shares);
 
     dlog("done!");
