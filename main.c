@@ -30,78 +30,90 @@ char a3[] = {
 
 int main( int argc, const char* argv[] )
 {
-	if(argc <= 1) return help();
+	if(argc <= 1) help();
 
-    bool bGen=false;
+    bool bGen = false;
+    bool bRes = false;
     for(int i=0; i<argc; i++){
         if(strcmp(argv[i], "gen") == 0)
             bGen = true;
+        if(strcmp(argv[i], "restore") == 0)
+            bRes = true;
     }
     if(bGen){
+        uint8_t threshold = 3;
+        uint8_t count = 5;
+        if(argc > 2) {
+            char* idx = strstr(argv[2], "of");
+            if(idx != NULL){
+                threshold = idx-1;
+                count = idx+2;
+            }
+        }
+
         mnemonic_string mnemonics[MAX_SHARE_COUNT][MAX_SHARE_COUNT] ;
         member_threshold mthres[g];
         for(uint8_t i=0; i<g; i++) {
-            mthres[i].count = 5;
-            mthres[i].threshold = 3;
+            mthres[i].count = count;
+            mthres[i].threshold = threshold;
         }
-        memset(ms, 0xA3, sizeof(ms));
+        // memset(ms, 0xA3, sizeof(ms));
+        random_bytes(sizeof(ms), ms);
         generate_mnemonic_shares(ms, sizeof(ms), passphrase, 0, gt, mthres, g, e, mnemonics);
-    } else {
+    } else if(bRes) {
+        int num=0;
+        printf("How many shares: ");
+        scanf("%d", &num);
+
         mnemonic_string** mnemonics;
-        mnemonics = malloc(sizeof(mnemonic_string)*MAX_SHARE_COUNT);
-        for(int i=0; i<MAX_SHARE_COUNT; i++){
+        mnemonics = malloc(sizeof(mnemonic_string)*num);
+        for(int i=0; i<num; i++){
             mnemonics[i] = malloc(sizeof(mnemonic_string)*33);
             // dlog("%x -> %x / ", &mnemonics[i], mnemonics[i]);
         }
 
-        // mnemonic_string mnemonics[MAX_SHARE_COUNT][MAX_SHARE_COUNT] ;
-        char delim[] = " ";
+        
+        const uint32_t buf_size = 33*(MNEMONIC_MAX_LEN+1)+1;
+        char* mnemonic = malloc(buf_size);
+        memzero(mnemonic, buf_size);
+        uint8_t i=0;
+        uint8_t word_cnt = 0;
+        do {
+            printf("Enter a recovery share: %d of %d \n", i, num);
+            fgets(mnemonic, buf_size, stdin);
+            if(strlen(mnemonic) < MNEMONIC_MAX_LEN) {i--; continue;}
 
-        char* p = strtok(a1, delim);
-        int j=0;
-        while(p != NULL){
-            strcpy(mnemonics[0][j++].mnemonic, p);
-            printf("%s ",mnemonics[0][j-1].mnemonic);
-            p = strtok(NULL, delim);
-        }dlog("");
-        p = strtok(a2, delim);
-        j=0;
-        while(p != NULL){
-            strcpy(mnemonics[1][j++].mnemonic, p);
-            // printf("%s ",mnemonics[1][j-1].mnemonic);
-            p = strtok(NULL, delim);
-        }
-        p = strtok(a3, delim);
-        j=0;
-        while(p != NULL){
-            strcpy(mnemonics[2][j++].mnemonic, p);
-            // printf("%s ",mnemonics[2][j-1].mnemonic);
-            p = strtok(NULL, delim);
-        }
+            char delim[] = " ";
+            char* p = strtok(mnemonic, delim);
+            int j=0;
+            while(p != NULL){
+                strcpy(mnemonics[i][j++].mnemonic, p);
+                // printf("%s ",mnemonics[i][j-1].mnemonic);
+                p = strtok(NULL, delim);
+            }
+            word_cnt = j-1;
+            
+            printf("\n");
+            memzero(mnemonic, buf_size);
+        }while(++i < num);
+        free(mnemonic);
         
-        // for(int i=0; i<3; i++) {
-        //     printf("%s \n",array[i]);
-        //     char* p = strtok(array[i], delim);
-        //     int j=0;
-        //     while(p != NULL){
-        //         strcpy(mnemonics[i][j++].mnemonic, p);
-        //         printf("%s ",p);
-        //         p = strtok(NULL, delim);
-        //     }
+        combin_mnemonics(mnemonics, i, word_cnt, "", 0);
 
-        //     printf("\n");
-        // }
-        
-        
-        combin_mnemonics(mnemonics, 3, 20, "", 0);
+        for(int i=0; i<num; i++){
+            free(mnemonics[i]);
+        }
+        free(mnemonics);
+    }
+    else {
+        help();
     }
 
     exit(0);
 }
 
-int help()
+void help()
 {
     printf("help~~~\n");
     exit(0);
-    return 0;
 }
