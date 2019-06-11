@@ -119,14 +119,22 @@ int generate_mnemonic_shares(uint8_t* master_secret, uint16_t ms_len,
 
 int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count, 
                      uint8_t mnemonic_len, uint8_t* passphrase, uint8_t pp_len);
-#define E_OK 0
-#define E_SECRET_SIZE       -1
-#define E_PASSPHRASE_CHAR   -2
-#define E_INVALID_THRESHOLD   -3
-// #define E_INVALID_MEMBER_THRESHOLD  -4
+int _decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out share_format* share);
+
+#define E_OK                         0
+#define E_SECRET_SIZE               -1
+#define E_PASSPHRASE_CHAR           -2
+#define E_INVALID_THRESHOLD         -3
 #define E_INVALID_ITERATION_EXPO    -4
 
 #define E_INVALID_THRESHOLD_VALUE   -5
 #define E_INVALID_SHARE_COUNT       -6
 
+#define E_MNEMONIC_EMPTY            -10
+#define E_INSUFFICIENT_MNEMONICS    -11
+#define E_INCORRECT_MNEMONIC_NUM    -12
+
+#define E_INVALID_PADDING_LEN       -13
+#define E_CHECKSUM                  -14
+#define E_DIGEST                    -15
 #endif
