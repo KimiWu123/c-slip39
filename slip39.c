@@ -290,16 +290,16 @@ int _encode_mnemonic(uint16_t id, uint8_t iter_exp, uint8_t group_index,
     _int_to_indices(ps, ps_len, RADIX_BITS, &indices[4]);
 
     uint32_t checksum = _rs1024_create_checksum(indices,ps_word_count+4, &indices[4+ps_word_count]);
-    dlog("checksum:0x%x", checksum);
+    // dlog("checksum:0x%x", checksum);
 
-    for(uint8_t i=0; i<total_words; i++) {
-        printf("%d ", indices[i]);
-    } dlog("");
+    // for(uint8_t i=0; i<total_words; i++) {
+    //     printf("%d ", indices[i]);
+    // } dlog("");
     for(int i=0; i<total_words; i++) {
         printf("%s ", wordlist[indices[i]]);
         strcpy(mnemonic_str[i].mnemonic, wordlist[indices[i]]);
     }
-    dlog("");
+    // dlog("");
 
     memzero(ps, ps_len+1); free(ps); 
     memzero(indices, total_words); free(indices); 
@@ -339,7 +339,7 @@ int _decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out s
 int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count, 
                       uint8_t mnemonic_len, _out all_shares* shares)
 {
-    dlog("decode: count:%d, len:%d", mnemonics_count, mnemonic_len);
+    dlog("\ndecode: count:%d, len:%d", mnemonics_count, mnemonic_len);
     uint8_t group_num = 0;
     for(uint8_t i=0; i<mnemonics_count; i++) {
         share_format a_share;
@@ -349,21 +349,22 @@ int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count,
         _decode_mnemonic(mnemonic_str[i], mnemonic_len, &a_share);
 
         uint8_t member_num = 0;
-        for(uint8_t j=0; j<group_num; j++){
+        for(uint8_t j=0; j<a_share.group_count; j++){
             if((*shares).group_shares[j].group_idx == a_share.group_idx){
                 member_num = (*shares).group_shares[j].member_num;
                 // dlog("group[%d], mem num %d", j, member_num);
             }
         }
-        // dlog("group[%d], mem num %d", (*shares).group_shares[group_num].group_idx, member_num);
-        dlog("group[%d], member[%d]", a_share.group_idx, a_share.member_idx);
-        print_hex("share: ", a_share.share_value, a_share.share_value_len);
 
         uint8_t group_idx = a_share.group_idx;
+        dlog("group[%d], mem num %d", (*shares).group_shares[group_idx].group_idx, member_num);
+        dlog("group[%d], member[%d]", group_idx, a_share.member_idx);
+        print_hex("share: ", a_share.share_value, a_share.share_value_len);
+        
         (*shares).id = a_share.id;
         (*shares).exp = a_share.exp;
         (*shares).group_threshod = a_share.group_threshod;
-        (*shares).group_shares[group_idx].group_idx = a_share.group_idx;
+        (*shares).group_shares[group_idx].group_idx = group_idx;
         (*shares).group_shares[group_idx].threshold = a_share.member_threshod;
         
         if((*shares).group_shares[group_idx].share_value == NULL){
@@ -405,8 +406,8 @@ void _create_digest(uint8_t* random_data, uint16_t random_data_len,
 }
 
 
-static uint16_t EXP_TABLE[255];
-static uint16_t LOG_TABLE[256];
+static uint16_t EXP_TABLE[255] = {0};
+static uint16_t LOG_TABLE[256] = {0};
 void _precompute_exp_log()  __attribute__((constructor));
 void _precompute_exp_log()
 {
@@ -443,15 +444,19 @@ void _interpolate(share_with_x* shares, uint16_t shares_len,
     for(uint16_t i=0; i<shares_len; i++) {
         log_prod += LOG_TABLE[shares[i].x ^ x];
     }
-    dlog("log_prod: %d", log_prod);
+    // dlog("log_prod: %d", log_prod);
 
     for(uint16_t i=0; i<shares_len; i++) {
         uint16_t sum=0;
         for(uint16_t j=0; j<shares_len; j++) {
             sum += LOG_TABLE[shares[i].x ^ shares[j].x];
         }
-        uint16_t log_basis_eval = (log_prod - LOG_TABLE[shares[i].x ^ x] - sum)%255;
-        // dlog("log_basis_eval %d", log_basis_eval);
+        int16_t log_basis_eval = (log_prod - LOG_TABLE[shares[i].x ^ x] - sum)%255;
+        if(log_basis_eval < 0) {
+            log_basis_eval += 255;
+        }
+        // dlog("log_basis_eval %d / LOG:%d, share_x^x:%d, sum:%d", 
+        //     log_basis_eval, LOG_TABLE[shares[i].x ^ x], shares[i].x^x, sum);
 
         uint8_t* intermediate_sum = malloc(a_share_len);
         memzero(intermediate_sum, a_share_len);
@@ -487,6 +492,10 @@ int _split_shares( uint8_t threshold, uint8_t share_count,
         return E_INVALID_SHARE_COUNT;
     }
 
+    // TODO: follow up the fix, b836a948369866803061d45dd8b0fe392b666c0a
+    if(threshold == 1) {
+
+    }
 
     if(share_count == 1) {
         memcpy(shares[0].share, secret, secret_len); 
@@ -522,17 +531,17 @@ int _split_shares( uint8_t threshold, uint8_t share_count,
     for(uint8_t i=random_share_count; i<share_count; i++) {
         _interpolate(base_shares, threshold, secret_len, i, shares[i].share);
         shares[i].x = i;
-        print_hex("share: ", shares[i].share, secret_len);
+        // print_hex("share: ", shares[i].share, secret_len);
     }
 
     memzero(base_shares, threshold*sizeof(share_with_x)); free(base_shares);
     memzero(random_part, random_part_len);free(random_part);
 
     // print out 
-    dlog("total shares:");
-    for(int i=0; i<share_count; i++) {
-        print_hex(" ", shares[i].share, secret_len);
-    }
+    // dlog("total shares:");
+    // for(int i=0; i<share_count; i++) {
+    //     print_hex(" ", shares[i].share, secret_len);
+    // }
 
     return E_OK;
 }
@@ -546,8 +555,8 @@ int _recover_secret(uint8_t threshold, share_with_x* shares_x, uint8_t shares_le
     }
 
     for(int i=0; i<shares_len; i++) {
-        printf("%d ", shares_x[i].x);
-        print_hex("", shares_x[i].share, a_share_len);
+        printf(" %d ", shares_x[i].x);
+        print_hex(" ", shares_x[i].share, a_share_len);
     }
 
     uint8_t* shared_secret = malloc(a_share_len);
@@ -555,9 +564,9 @@ int _recover_secret(uint8_t threshold, share_with_x* shares_x, uint8_t shares_le
     uint8_t* digest_share = malloc(a_share_len);
     memzero(digest_share, a_share_len);
     _interpolate(shares_x, shares_len, a_share_len, SECRET_INDEX, shared_secret);
-    // print_hex("recovered secret: ", shared_secret, a_share_len);
+    print_hex("recovered secret: ", shared_secret, a_share_len);
     _interpolate(shares_x, shares_len, a_share_len, DIGEST_INDEX, digest_share);
-    // print_hex("recovered digest share: ", digest_share, a_share_len);
+    print_hex("recovered digest share: ", digest_share, a_share_len);
 
     uint32_t digest=0;
     uint8_t* random_part = malloc(a_share_len - DIGEST_LENGTH_BYTES);
@@ -581,7 +590,8 @@ int _recover_secret(uint8_t threshold, share_with_x* shares_x, uint8_t shares_le
 
 //
 int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count, 
-                     uint8_t mnemonic_len, uint8_t* passphrase, uint8_t pp_len)
+                     uint8_t mnemonic_len, uint8_t* passphrase, uint8_t pp_len, 
+                     _out uint8_t* ms)
 {
     if(mnemonic_shares == NULL) {
         dlog("The list of mnemonic is empty.");
@@ -592,7 +602,9 @@ int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count,
     uint8_t share_value_len = (mnemonic_len-METADATA_LENGTH_WORDS)*RADIX_BITS / 8 ;
     // TODO fix group count
     all_shares shares;
-    shares.group_shares = malloc(10*sizeof(group_share));
+    uint8_t g = 10;
+    shares.group_shares = malloc(g*sizeof(group_share));
+    memzero(shares.group_shares, g*sizeof(group_share));
     
     ret = _decode_mnemonics(mnemonic_shares, mnemonic_count, mnemonic_len, &shares);
     if(ret != E_OK) {
@@ -602,30 +614,31 @@ int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count,
     
 
     share_with_x* group_shares = malloc(shares.group_num*sizeof(share_with_x));
-    dlog("group numbers: %d", shares.group_num);
-    for(uint8_t i=0; i<shares.group_num; i++) {
+    memzero(group_shares, shares.group_num*sizeof(share_with_x));
+    // dlog("group numbers: %d", shares.group_num);
+    uint8_t idx=0;
+    for(uint8_t i=0; i<g; i++) {
+        if(shares.group_shares[i].member_num == 0) continue;
         group_share a_group = shares.group_shares[i];
         _recover_secret(a_group.threshold, a_group.share_value, a_group.share_value_len, 
-                        share_value_len, group_shares[i].share);
-        group_shares[i].x = shares.group_shares[i].group_idx;
+                        share_value_len, group_shares[idx].share);
+        group_shares[idx++].x = shares.group_shares[i].group_idx;
     }
 
     uint8_t* ems = malloc(share_value_len);
     memzero(ems, share_value_len);
     _recover_secret(shares.group_threshod, group_shares, shares.group_num, share_value_len, ems);
-    print_hex("ems: ", ems, share_value_len);
+    // print_hex("ems: ", ems, share_value_len);
 
-    uint8_t* ms = malloc(share_value_len);
-    memzero(ms, share_value_len);
     _decrypt(ems, share_value_len, passphrase, pp_len, shares.exp, shares.id, ms);
-    print_hex("master secret: ", ms, share_value_len);
+    // print_hex("master secret: ", ms, share_value_len);
 
-    free(ms);
-    free(ems);
-    for(uint8_t i=0; i<shares.group_num; i++) {
-        free(shares.group_shares[i].share_value);
-    }
-    free(shares.group_shares);
+    // free(ms);
+    // free(ems);
+    // for(uint8_t i=0; i<shares.group_num; i++) {
+    //     free(shares.group_shares[i].share_value);
+    // }
+    // free(shares.group_shares);
 
     dlog("done!");
     return ret;
@@ -665,11 +678,11 @@ int generate_mnemonic_shares(uint8_t* master_secret, uint16_t ms_len,
 
     // dlog("group count:%d", group_len);
     uint16_t id = _generate_random_id();
-    dlog("id: 0x%x", id);
+    // dlog("id: 0x%x", id);
 
     uint8_t* ems = malloc(ms_len); memzero(ems, ms_len);
     _encrypt(master_secret, ms_len, passphrase, pp_len, iter_exponent, id, ems);
-    print_hex("ems: ", ems, ms_len);
+    // print_hex("ems: ", ems, ms_len);
 
     // Get group shares
     share_with_x* group_shares = malloc(group_len*sizeof(share_with_x));
