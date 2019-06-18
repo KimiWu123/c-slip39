@@ -236,7 +236,8 @@ void _int_from_indices(uint16_t* indicies, uint8_t indicies_len, uint8_t padding
             }
         }
         out[i] += (indicies[idx_of_indicies] >> ((RADIX_BITS - move_bits))) & 0xFF;
-        left_bits = ((idx_of_indicies)*RADIX_BITS) - (i)*8;
+        // left_bits = ((idx_of_indicies)*RADIX_BITS) - (i)*8;
+        left_bits = RADIX_BITS - move_bits;
         // printf("%x ", out[i]);
     }
     // dlog("");
@@ -328,8 +329,8 @@ int _decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out s
     (*share).group_count = ((indices[2] & 0x03) << 2) + (indices[3]>>8) + 1;
     (*share).member_idx = ((indices[3] & 0xF0) >> 4);// + indices[4]>>8;
     (*share).member_threshod = (indices[3] & 0x0F) + 1;
-    // dlog("%d %d %d %d %d %d %d", (*share).id, (*share).exp, (*share).group_idx, 
-    // (*share).group_threshod, (*share).group_count, (*share).member_idx, (*share).member_threshod);
+    dlog("%d %d %d %d %d %d %d", (*share).id, (*share).exp, (*share).group_idx, 
+    (*share).group_threshod, (*share).group_count, (*share).member_idx, (*share).member_threshod);
 
     _int_from_indices(&indices[4], mnemonic_len, padding_len, (*share).share_value, (*share).share_value_len);
 
@@ -339,6 +340,7 @@ int _decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out s
 int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count, 
                       uint8_t mnemonic_len, _out all_shares* shares)
 {
+    int ret = E_OK;
     dlog("\ndecode: count:%d, len:%d", mnemonics_count, mnemonic_len);
     uint8_t group_num = 0;
     for(uint8_t i=0; i<mnemonics_count; i++) {
@@ -346,7 +348,12 @@ int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count,
         a_share.share_value_len =  (mnemonic_len-METADATA_LENGTH_WORDS)*RADIX_BITS / 8 ;
         a_share.share_value = malloc(a_share.share_value_len);
         memzero(a_share.share_value, a_share.share_value_len);
-        _decode_mnemonic(mnemonic_str[i], mnemonic_len, &a_share);
+        
+        ret = _decode_mnemonic(mnemonic_str[i], mnemonic_len, &a_share);
+        if(ret != E_OK) {
+            free(a_share.share_value);
+            return ret;
+        }
 
         uint8_t member_num = 0;
         for(uint8_t j=0; j<a_share.group_count; j++){
@@ -357,8 +364,8 @@ int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count,
         }
 
         uint8_t group_idx = a_share.group_idx;
-        dlog("group[%d], mem num %d", (*shares).group_shares[group_idx].group_idx, member_num);
-        dlog("group[%d], member[%d]", group_idx, a_share.member_idx);
+        // dlog("group[%d], mem num %d", (*shares).group_shares[group_idx].group_idx, member_num);
+        // dlog("group[%d], member[%d]", group_idx, a_share.member_idx);
         print_hex("share: ", a_share.share_value, a_share.share_value_len);
         
         (*shares).id = a_share.id;
@@ -391,7 +398,7 @@ int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count,
         dlog("Wrong number of mnemonic groups (%d). Threshold:%d", (*shares).group_num, (*shares).group_threshod);
         return E_INCORRECT_MNEMONIC_NUM;
     }
-    return E_OK;
+    return ret;
 }
 
 // SSS
@@ -633,12 +640,12 @@ int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count,
     _decrypt(ems, share_value_len, passphrase, pp_len, shares.exp, shares.id, ms);
     // print_hex("master secret: ", ms, share_value_len);
 
-    // free(ms);
-    // free(ems);
-    // for(uint8_t i=0; i<shares.group_num; i++) {
-    //     free(shares.group_shares[i].share_value);
-    // }
-    // free(shares.group_shares);
+    free(ems);
+    free(group_shares);
+    for(uint8_t i=0; i<shares.group_num; i++) {
+        free(shares.group_shares[i].share_value);
+    }
+    free(shares.group_shares);
 
     dlog("done!");
     return ret;
