@@ -118,7 +118,8 @@ int generate_mnemonic_shares(uint8_t* master_secret, uint16_t ms_len,
                               _out mnemonic_string** mnemonic_shares);
 
 int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count, 
-                     uint8_t mnemonic_len, uint8_t* passphrase, uint8_t pp_len);
+                     uint8_t mnemonic_len, uint8_t* passphrase, uint8_t pp_len, 
+                     _out uint8_t* ms);
 int _decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out share_format* share);
 
 #define E_OK                         0
@@ -137,4 +138,9 @@ int _decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out s
 #define E_INVALID_PADDING_LEN       -13
 #define E_CHECKSUM                  -14
 #define E_DIGEST                    -15
+#define E_ID_INCONSISTENCE          -16
+#define E_ITER_INCONSISTENCE        -17
+#define E_GROUP_CNT_INCONSISTENCE   -18
+#define E_GROUP_THR_INCONSISTENCE   -19
+#define E_MEMBER_THR_INCONSISTENCE  -20
 #endif

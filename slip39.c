@@ -329,8 +329,8 @@ int _decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out s
     (*share).group_count = ((indices[2] & 0x03) << 2) + (indices[3]>>8) + 1;
     (*share).member_idx = ((indices[3] & 0xF0) >> 4);// + indices[4]>>8;
     (*share).member_threshod = (indices[3] & 0x0F) + 1;
-    dlog("%d %d %d %d %d %d %d", (*share).id, (*share).exp, (*share).group_idx, 
-    (*share).group_threshod, (*share).group_count, (*share).member_idx, (*share).member_threshod);
+    // dlog("%d %d %d %d %d %d %d", (*share).id, (*share).exp, (*share).group_idx, 
+    // (*share).group_threshod, (*share).group_count, (*share).member_idx, (*share).member_threshod);
 
     _int_from_indices(&indices[4], mnemonic_len, padding_len, (*share).share_value, (*share).share_value_len);
 
@@ -354,23 +354,53 @@ int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count,
             free(a_share.share_value);
             return ret;
         }
+        if(i != 0 && a_share.id != (*shares).id) {
+            dlog("id of shares are inconsistent...%d/%d", a_share.id, (*shares).id);
+            free(a_share.share_value);
+            return E_ID_INCONSISTENCE;
+        }
+        if(i != 0 && a_share.exp != (*shares).exp) {
+            dlog("iteration numbers of shares are inconsistent...%d/%d", a_share.exp, (*shares).exp);
+            free(a_share.share_value);
+            return E_ITER_INCONSISTENCE;
+        }
+        if(i != 0 && a_share.group_count != (*shares).group_count) {
+            dlog("group count of shares are inconsistent...%d/%d", 
+                a_share.group_count, (*shares).group_count);
+            free(a_share.share_value);
+            return E_GROUP_CNT_INCONSISTENCE;
+        }
+        if(i != 0 && a_share.group_threshod != (*shares).group_threshod) {
+            dlog("group threshold of shares are inconsistent...%d/%d", 
+                a_share.group_threshod, (*shares).group_threshod);
+            free(a_share.share_value);
+            return E_GROUP_THR_INCONSISTENCE;
+        }
 
         uint8_t member_num = 0;
         for(uint8_t j=0; j<a_share.group_count; j++){
             if((*shares).group_shares[j].group_idx == a_share.group_idx){
                 member_num = (*shares).group_shares[j].member_num;
+                for(uint8_t n=0; n<member_num; n++) {
+                    if((*shares).group_shares[j].threshold != a_share.member_threshod) {
+                        dlog("member threshold of shares are inconsistent...%d/%d", 
+                            a_share.member_threshod, (*shares).group_shares[j].threshold);
+                        free(a_share.share_value);
+                        return E_MEMBER_THR_INCONSISTENCE;
+                    }
+                }
                 // dlog("group[%d], mem num %d", j, member_num);
             }
         }
-
         uint8_t group_idx = a_share.group_idx;
         // dlog("group[%d], mem num %d", (*shares).group_shares[group_idx].group_idx, member_num);
         // dlog("group[%d], member[%d]", group_idx, a_share.member_idx);
-        print_hex("share: ", a_share.share_value, a_share.share_value_len);
+        // print_hex("share: ", a_share.share_value, a_share.share_value_len);
         
         (*shares).id = a_share.id;
         (*shares).exp = a_share.exp;
         (*shares).group_threshod = a_share.group_threshod;
+        (*shares).group_count = a_share.group_count;
         (*shares).group_shares[group_idx].group_idx = group_idx;
         (*shares).group_shares[group_idx].threshold = a_share.member_threshod;
         
@@ -609,6 +639,7 @@ int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count,
     uint8_t share_value_len = (mnemonic_len-METADATA_LENGTH_WORDS)*RADIX_BITS / 8 ;
     // TODO fix group count
     all_shares shares;
+    memzero(&shares, sizeof(shares));
     uint8_t g = 10;
     shares.group_shares = malloc(g*sizeof(group_share));
     memzero(shares.group_shares, g*sizeof(group_share));
@@ -618,7 +649,7 @@ int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count,
         dlog("decode mnemonics failed (%d)", ret);
         return ret;
     }
-    
+
 
     share_with_x* group_shares = malloc(shares.group_num*sizeof(share_with_x));
     memzero(group_shares, shares.group_num*sizeof(share_with_x));
