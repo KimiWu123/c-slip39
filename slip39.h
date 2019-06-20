@@ -130,6 +130,9 @@ int _decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out s
 
 #define E_INVALID_THRESHOLD_VALUE   -5
 #define E_INVALID_SHARE_COUNT       -6
+#define E_INVALID_MNEMONIC_LEN      -7
+#define E_INVALID_GROUP_INDEX       -8
+#define E_INVALID_PADDING           -9
 
 #define E_MNEMONIC_EMPTY            -10
 #define E_INSUFFICIENT_MNEMONICS    -11
@@ -143,4 +146,7 @@ int _decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out s
 #define E_GROUP_CNT_INCONSISTENCE   -18
 #define E_GROUP_THR_INCONSISTENCE   -19
 #define E_MEMBER_THR_INCONSISTENCE  -20
+
+#define E_NOT_ENOUGH_GROUPS         -21
+#define E_NOT_ENOUGH_MEMBERS        -22
 #endif
