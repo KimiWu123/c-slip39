@@ -4,6 +4,7 @@
 #include <stdint.h>
 
 #define _out
+#define _in_out
 
 // """The length of the radix in bits."""
 #define RADIX_BITS 10
@@ -58,6 +59,9 @@
 
 #define MNEMONIC_MAX_LEN 8
 #define MNEMONIC_MIN_LEN 4
+
+#define MNEMONIC_WORDS_MAX 33
+#define MNEMONIC_WORDS_MIN 20
 
 #define BITS_TO_BYTES(n) ((n+7)/8)
 #define BITS_TO_WORDS(n) ((n+RADIX_BITS-1)/RADIX_BITS)
@@ -149,4 +153,6 @@ int _decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out s
 
 #define E_NOT_ENOUGH_GROUPS         -21
 #define E_NOT_ENOUGH_MEMBERS        -22
+
+#define E_NOT_ENOUGH_BUFFER_SIZE    -30
 #endif

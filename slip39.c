@@ -357,7 +357,7 @@ int _decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out s
 }
 
 int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count, 
-                      uint8_t mnemonic_len, _out all_shares* shares)
+                      uint8_t mnemonic_len, _out all_shares* shares, _in_out uint8_t* shares_len)
 {
     int ret = E_OK;
     // dlog("\ndecode: count:%d, len:%d", mnemonics_count, mnemonic_len);
@@ -373,6 +373,13 @@ int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count,
             free(a_share.share_value);
             return ret;
         }
+        if(*shares_len < a_share.group_count){
+            *shares_len = a_share.group_count;
+            free(a_share.share_value);
+            return E_NOT_ENOUGH_BUFFER_SIZE;
+        }
+        *shares_len = a_share.group_count;
+
         if(i != 0 && a_share.id != (*shares).id) {
             dlog("id of shares are inconsistent...%d/%d", a_share.id, (*shares).id);
             free(a_share.share_value);
@@ -489,15 +496,13 @@ void _precompute_exp_log()
 }
 
 void _interpolate(share_with_x* shares, uint16_t shares_len, 
-                  uint16_t a_share_len, uint8_t x,
-                  _out uint8_t* out)
+                  uint16_t a_share_len, uint8_t x, _out uint8_t* out)
 {
     uint8_t* x_coord = malloc(shares_len);
     for(uint16_t i=0; i<shares_len; i++) {
         x_coord[i] = shares[i].x;
     }
 
-    // TODO: check the meaning
     for(uint16_t i=0; i<shares_len; i++) {
         if(x == x_coord[i]) {
             memcpy(out, shares[i].share, a_share_len);
@@ -542,7 +547,7 @@ void _interpolate(share_with_x* shares, uint16_t shares_len,
 
 int _split_shares( uint8_t threshold, uint8_t share_count, 
                     uint8_t* secret, uint16_t secret_len,
-                    _out share_with_x* shares)
+                    _out share_with_x* shares, uint8_t shares_len)
 {
     if(threshold < 1) {
         dlog("threshold value should be positive, %d", threshold);
@@ -557,9 +562,12 @@ int _split_shares( uint8_t threshold, uint8_t share_count,
         return E_INVALID_SHARE_COUNT;
     }
 
-    // TODO: follow up the fix, b836a948369866803061d45dd8b0fe392b666c0a
     if(threshold == 1) {
-
+        for(uint8_t i=0; i<shares_len; i++) {
+            memcpy(shares[i].share, secret, secret_len); 
+            shares[i].x=i;
+        }
+        return E_OK;
     }
 
     if(share_count == 1) {
@@ -662,21 +670,22 @@ int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count,
         dlog("The list of mnemonic is empty.");
         return E_MNEMONIC_EMPTY;
     }
-    if(mnemonic_len < 20 || mnemonic_len > 33) {
-        dlog("Mnemonic length is not legal. (%d)", mnemonic_len);
+    if(mnemonic_len < MNEMONIC_WORDS_MIN || mnemonic_len > MNEMONIC_WORDS_MAX) {
+        dlog("Mnemonic length is not legal. (len:%d)", mnemonic_len);
         return E_INVALID_MNEMONIC_LEN;
     }
 
     int ret = E_OK;
     uint8_t share_value_len = (mnemonic_len-METADATA_LENGTH_WORDS)*RADIX_BITS / 8 ;
-    // TODO fix group count
-    all_shares shares;
-    memzero(&shares, sizeof(shares));
-    uint8_t g = 10;
-    shares.group_shares = malloc(g*sizeof(group_share));
-    memzero(shares.group_shares, g*sizeof(group_share));
-    
-    ret = _decode_mnemonics(mnemonic_shares, mnemonic_count, mnemonic_len, &shares);
+    all_shares shares; memzero(&shares, sizeof(shares));
+
+    uint8_t share_len = 0;
+    ret = _decode_mnemonics(mnemonic_shares, mnemonic_count, mnemonic_len, NULL, &share_len);
+    if(ret == E_NOT_ENOUGH_BUFFER_SIZE){            
+        shares.group_shares = malloc(share_len*sizeof(group_share));
+        memzero(shares.group_shares, share_len*sizeof(group_share));
+        ret = _decode_mnemonics(mnemonic_shares, mnemonic_count, mnemonic_len, &shares, &share_len);
+    }
     if(ret != E_OK) {
         dlog("decode mnemonics failed (%d)", ret);
         return ret;
@@ -691,7 +700,7 @@ int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count,
     memzero(group_shares, shares.group_num*sizeof(share_with_x));
     // dlog("group numbers: %d", shares.group_num);
     uint8_t idx=0;
-    for(uint8_t i=0; i<g; i++) {
+    for(uint8_t i=0; i<share_len; i++) {
         if(shares.group_shares[i].member_num < shares.group_shares[i].threshold) {
             dlog("Member number is less than threshold, %d/%d", 
                 shares.group_shares[i].member_num, shares.group_shares[i].threshold);
@@ -727,7 +736,7 @@ int combin_mnemonics(mnemonic_string** mnemonic_shares, uint8_t mnemonic_count,
     }
     free(shares.group_shares);
 
-    dlog("done!");
+    // dlog("done!");
     return ret;
 }
 
@@ -773,14 +782,14 @@ int generate_mnemonic_shares(uint8_t* master_secret, uint16_t ms_len,
 
     // Get group shares
     share_with_x* group_shares = malloc(group_len*sizeof(share_with_x));
-    int ret =_split_shares(group_threshold, group_len, ems, ms_len, group_shares);
+    int ret =_split_shares(group_threshold, group_len, ems, ms_len, group_shares, group_len);
     if(ret != E_OK) return ret;
 
     // Get all mnemonics
     for(uint8_t i=0; i<group_len; i++) {
         share_with_x* member_shares = malloc(groups[i].count*sizeof(share_with_x));
         ret = _split_shares(groups[i].threshold, groups[i].count, 
-                      group_shares[i].share, ms_len, member_shares);
+                      group_shares[i].share, ms_len, member_shares, groups[i].count);
         if(ret != E_OK) { free(member_shares); return ret; }
 
         for(uint8_t j=0; j<groups[i].count; j++) {
