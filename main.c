@@ -35,79 +35,28 @@ int main( int argc, const char* argv[] )
     bool bGen = false;
     bool bRes = false;
     bool bTest = false;
-    for(int i=0; i<argc; i++){
-        if(strcmp(argv[i], "gen") == 0)
-            bGen = true;
-        if(strcmp(argv[i], "restore") == 0)
-            bRes = true;
-        if(strcmp(argv[i], "test") == 0)
-            bTest = true;
-    }
+    if(strcmp(argv[1], "gen") == 0)
+        bGen = true;
+    if(strcmp(argv[1], "restore") == 0)
+        bRes = true;
+    if(strcmp(argv[1], "test") == 0)
+        bTest = true;
+
     if(bTest){
         if(argc < 2) 
             help(); 
         test(argv[2]);
     }
     else if(bGen){
-        uint8_t threshold = 3;
-        uint8_t count = 5;
-        if(argc > 2) {
-            char* idx = strstr(argv[2], "of");
-            if(idx != NULL){
-                threshold = idx-1;
-                count = idx+2;
-            }
-        }
-
-        mnemonic_string mnemonics[MAX_SHARE_COUNT][MAX_SHARE_COUNT] ;
-        member_threshold mthres[g];
-        for(uint8_t i=0; i<g; i++) {
-            mthres[i].count = count;
-            mthres[i].threshold = threshold;
-        }
-        random_bytes(sizeof(ms), ms);
-        generate_mnemonic_shares(ms, sizeof(ms), passphrase, 0, gt, mthres, g, e, mnemonics);
+        if(argc < 2) 
+            help();
+        generate(argv[2]);
     } else if(bRes) {
-        int num=0;
-        printf("How many shares: ");
-        scanf("%d", &num);
-
-        mnemonic_string** mnemonics;
-        mnemonics = malloc(sizeof(mnemonic_string)*num);
-        for(int i=0; i<num; i++){
-            mnemonics[i] = malloc(sizeof(mnemonic_string)*33);
-        }
-
-        const uint32_t buf_size = 33*(MNEMONIC_MAX_LEN+1)+1;
-        char* mnemonic = malloc(buf_size);
-        memzero(mnemonic, buf_size);
-        uint8_t i=0;
-        uint8_t word_cnt = 0;
-        do {
-            printf("Enter a recovery share: %d of %d \n", i, num);
-            fgets(mnemonic, buf_size, stdin);
-            if(strlen(mnemonic) < MNEMONIC_MAX_LEN) {i--; continue;}
-
-            word_cnt = parse_mnemonic_strings(mnemonic, mnemonics[i])-1;
-            printf("\n");
-            memzero(mnemonic, buf_size);
-        }while(++i < num);
-        free(mnemonic);
-        
-        uint8_t share_value_len = (word_cnt-METADATA_LENGTH_WORDS)*RADIX_BITS / 8 ;
-        uint8_t* ms = malloc(share_value_len); memzero(ms, share_value_len);
-        combin_mnemonics(mnemonics, i, word_cnt, "", 0, ms);
-        print_hex("secret: ", ms, share_value_len);
-
-        for(int i=0; i<num; i++){
-            free(mnemonics[i]);
-        }
-        free(mnemonics);
+        restore();
     }
     else {
         help();
     }
-
     exit(0);
 }
 
@@ -121,6 +70,65 @@ void help()
     printf("  test: test with test vectors\n");
     printf("        <file name>, eg: vectors.json\n");
     exit(0);
+}
+
+void generate(char* threshold_count) 
+{
+    uint8_t threshold = 3;
+    uint8_t count = 5;
+    char* idx = strstr(threshold_count, "of");
+    if(idx != NULL){
+        threshold = idx-1;
+        count = idx+2;
+    }
+
+    mnemonic_string mnemonics[MAX_SHARE_COUNT][MAX_SHARE_COUNT] ;
+    member_threshold mthres[g];
+    for(uint8_t i=0; i<g; i++) {
+        mthres[i].count = count;
+        mthres[i].threshold = threshold;
+    }
+    random_bytes(sizeof(ms), ms);
+    generate_mnemonic_shares(ms, sizeof(ms), passphrase, 0, gt, mthres, g, e, mnemonics);
+}
+
+void restore()
+{
+    int num=0;
+    printf("How many shares: ");
+    scanf("%d", &num);
+
+    mnemonic_string** mnemonics;
+    mnemonics = malloc(sizeof(mnemonic_string)*num);
+    for(int i=0; i<num; i++){
+        mnemonics[i] = malloc(sizeof(mnemonic_string)*33);
+    }
+
+    const uint32_t buf_size = 33*(MNEMONIC_MAX_LEN+1)+1;
+    char* mnemonic = malloc(buf_size);
+    memzero(mnemonic, buf_size);
+    uint8_t i=0;
+    uint8_t word_cnt = 0;
+    do {
+        printf("Enter a recovery share: %d of %d \n", i, num);
+        fgets(mnemonic, buf_size, stdin);
+        if(strlen(mnemonic) < MNEMONIC_MAX_LEN) {i--; continue;}
+
+        word_cnt = parse_mnemonic_strings(mnemonic, mnemonics[i])-1;
+        printf("\n");
+        memzero(mnemonic, buf_size);
+    }while(++i < num);
+    free(mnemonic);
+    
+    uint8_t share_value_len = (word_cnt-METADATA_LENGTH_WORDS)*RADIX_BITS / 8 ;
+    uint8_t* ms = malloc(share_value_len); memzero(ms, share_value_len);
+    combin_mnemonics(mnemonics, i, word_cnt, "", 0, ms);
+    print_hex("secret: ", ms, share_value_len);
+
+    for(int i=0; i<num; i++){
+        free(mnemonics[i]);
+    }
+    free(mnemonics);
 }
 
 void test(char* filename) {
@@ -149,7 +157,7 @@ void test(char* filename) {
         if((*test_case).type == cJSON_Array) {
             bool valid = true;
             cJSON* desc = cJSON_GetArrayItem(test_case, 0);
-            printf("\n%s", (*desc).valuestring);
+            printf("\n%s\n", (*desc).valuestring);
             
             cJSON* secret = cJSON_GetArrayItem(test_case, 2);
             if(strlen((*secret).valuestring) == 0) {

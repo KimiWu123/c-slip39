@@ -311,7 +311,7 @@ int _encode_mnemonic(uint16_t id, uint8_t iter_exp, uint8_t group_index,
     memzero(indices, total_words); free(indices); 
 }
 
-int _decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out share_format* share)
+int decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out share_format* share)
 {
     uint16_t* indices = malloc(mnemonic_len*sizeof(uint16_t));
     mnemonic_to_indicies(mnemonic_str, mnemonic_len, indices);
@@ -368,7 +368,7 @@ int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count,
         a_share.share_value = malloc(a_share.share_value_len);
         memzero(a_share.share_value, a_share.share_value_len);
         
-        ret = _decode_mnemonic(mnemonic_str[i], mnemonic_len, &a_share);
+        ret = decode_mnemonic(mnemonic_str[i], mnemonic_len, &a_share);
         if(ret != E_OK) {
             free(a_share.share_value);
             return ret;
@@ -466,85 +466,6 @@ int _decode_mnemonics(mnemonic_string** mnemonic_str, uint8_t mnemonics_count,
     return ret;
 }
 
-// SSS
-
-void _create_digest(uint8_t* random_data, uint16_t random_data_len, 
-                    uint8_t* shared_secret, uint16_t shared_secret_len,
-                    _out uint8_t* out)
-{
-    uint8_t mac[32];
-    hmac_sha256(random_data, random_data_len, shared_secret, shared_secret_len, mac);
-    memcpy(out, mac, DIGEST_LENGTH_BYTES);
-}
-
-
-static uint16_t EXP_TABLE[255] = {0};
-static uint16_t LOG_TABLE[256] = {0};
-void _precompute_exp_log()  __attribute__((constructor));
-void _precompute_exp_log()
-{
-    uint16_t poly = 1;
-    for(uint16_t i=0; i<255; i++) {
-        EXP_TABLE[i] = poly;
-        LOG_TABLE[poly] = i;
-
-        poly = (poly<<1) ^ poly;
-
-        if(poly & 0x100)
-            poly ^= 0x11B;
-    }
-}
-
-void _interpolate(share_with_x* shares, uint16_t shares_len, 
-                  uint16_t a_share_len, uint8_t x, _out uint8_t* out)
-{
-    uint8_t* x_coord = malloc(shares_len);
-    for(uint16_t i=0; i<shares_len; i++) {
-        x_coord[i] = shares[i].x;
-    }
-
-    for(uint16_t i=0; i<shares_len; i++) {
-        if(x == x_coord[i]) {
-            memcpy(out, shares[i].share, a_share_len);
-            return;
-        }
-    }
-
-    uint16_t log_prod=0;
-    for(uint16_t i=0; i<shares_len; i++) {
-        log_prod += LOG_TABLE[shares[i].x ^ x];
-    }
-    // dlog("log_prod: %d", log_prod);
-
-    for(uint16_t i=0; i<shares_len; i++) {
-        uint16_t sum=0;
-        for(uint16_t j=0; j<shares_len; j++) {
-            sum += LOG_TABLE[shares[i].x ^ shares[j].x];
-        }
-        int16_t log_basis_eval = (log_prod - LOG_TABLE[shares[i].x ^ x] - sum)%255;
-        if(log_basis_eval < 0) {
-            log_basis_eval += 255;
-        }
-        // dlog("log_basis_eval %d / LOG:%d, share_x^x:%d, sum:%d", 
-        //     log_basis_eval, LOG_TABLE[shares[i].x ^ x], shares[i].x^x, sum);
-
-        uint8_t* intermediate_sum = malloc(a_share_len);
-        memzero(intermediate_sum, a_share_len);
-        for(uint16_t k=0; k<a_share_len; k++) {
-            uint8_t share_val = shares[i].share[k];
-            intermediate_sum[k] = out[k];
-            // dlog("%d - %d / %d", share_val, intermediate_sum[k], k);
-            if(share_val != 0)
-                intermediate_sum[k] ^= EXP_TABLE[(LOG_TABLE[share_val]+log_basis_eval)%255];
-            else 
-                intermediate_sum[k] ^= 0;
-        }
-        memcpy(out, intermediate_sum, a_share_len);
-        memzero(intermediate_sum, a_share_len); free(intermediate_sum);
-    }
-    memzero(x_coord, shares_len); free(x_coord);
-}
-
 int _split_shares( uint8_t threshold, uint8_t share_count, 
                     uint8_t* secret, uint16_t secret_len,
                     _out share_with_x* shares, uint8_t shares_len)
@@ -582,7 +503,7 @@ int _split_shares( uint8_t threshold, uint8_t share_count,
     uint8_t* random_part = malloc(random_part_len);
     memzero(random_part, random_part_len);
     random_bytes(random_part_len, random_part);
-    _create_digest(random_part, random_part_len, secret, secret_len, &digest);
+    create_digest(random_part, random_part_len, secret, secret_len, &digest);
     // dlog("digest: 0x%x", be32toh(digest));
 
     share_with_x* base_shares = malloc(threshold*sizeof(share_with_x));
@@ -602,7 +523,7 @@ int _split_shares( uint8_t threshold, uint8_t share_count,
     base_shares[threshold-1].x = SECRET_INDEX;
 
     for(uint8_t i=random_share_count; i<share_count; i++) {
-        _interpolate(base_shares, threshold, secret_len, i, shares[i].share);
+        interpolate(base_shares, threshold, secret_len, i, shares[i].share);
         shares[i].x = i;
         // print_hex("share: ", shares[i].share, secret_len);
     }
@@ -636,9 +557,9 @@ int _recover_secret(uint8_t threshold, share_with_x* shares_x, uint8_t shares_le
     memzero(shared_secret, a_share_len);
     uint8_t* digest_share = malloc(a_share_len);
     memzero(digest_share, a_share_len);
-    _interpolate(shares_x, shares_len, a_share_len, SECRET_INDEX, shared_secret);
+    interpolate(shares_x, shares_len, a_share_len, SECRET_INDEX, shared_secret);
     // print_hex("recovered secret: ", shared_secret, a_share_len);
-    _interpolate(shares_x, shares_len, a_share_len, DIGEST_INDEX, digest_share);
+    interpolate(shares_x, shares_len, a_share_len, DIGEST_INDEX, digest_share);
     // print_hex("recovered digest share: ", digest_share, a_share_len);
 
     uint32_t digest=0;
@@ -649,7 +570,7 @@ int _recover_secret(uint8_t threshold, share_with_x* shares_x, uint8_t shares_le
     }
 
     uint32_t digest_v=0;
-    _create_digest(random_part, a_share_len - DIGEST_LENGTH_BYTES, shared_secret, a_share_len, &digest_v);
+    create_digest(random_part, a_share_len - DIGEST_LENGTH_BYTES, shared_secret, a_share_len, &digest_v);
     if(digest != digest_v) {
         dlog("Invalid digest, %x vs %x", digest, digest_v);
         free(digest_share); free(shared_secret);
