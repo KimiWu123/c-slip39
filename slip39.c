@@ -251,7 +251,7 @@ void mnemonic_to_indicies(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _
 }
 
 #define MASK_ID_LOW 0x001F
-#define MASK_GROPU_COUNT_LOW 0x03
+#define MASK_GROUP_COUNT_LOW 0x03
 int _encode_mnemonic(uint16_t id, uint8_t iter_exp, uint8_t group_index,
                       uint8_t group_threshold, uint8_t group_count,
                       uint8_t member_index, uint8_t member_threshold,
@@ -269,7 +269,7 @@ int _encode_mnemonic(uint16_t id, uint8_t iter_exp, uint8_t group_index,
     indices[1] = ((id & MASK_ID_LOW) << 5) + iter_exp;
     indices[2] = group_index; indices[2] <<=6;
     indices[2] = ((group_threshold-1)<<2) + (group_count-1)>>2;
-    indices[3] = ((group_count-1) & MASK_GROPU_COUNT_LOW); indices[3] <<= 8;
+    indices[3] = ((group_count-1) & MASK_GROUP_COUNT_LOW); indices[3] <<= 8;
     indices[3] = (member_index<<4) + (member_threshold-1) ;
 
     // padding share:
@@ -314,7 +314,7 @@ int decode_mnemonic(mnemonic_string* mnemonic_str, uint8_t mnemonic_len, _out sh
     (*share).group_idx = (indices[2]>>6) & 0x0F;
     (*share).group_threshold = ((indices[2] >> 2) & 0x0F) + 1;
     (*share).group_count = ((indices[2] & 0x03) << 2) + (indices[3]>>8) + 1;
-    (*share).member_idx = ((indices[3] & 0xF0) >> 4);// + indices[4]>>8;
+    (*share).member_idx = ((indices[3] & 0xF0) >> 4);
     (*share).member_threshod = (indices[3] & 0x0F) + 1;
     // dlog("%d %d %d %d %d %d %d", (*share).id, (*share).exp, (*share).group_idx, 
     // (*share).group_threshold, (*share).group_count, (*share).member_idx, (*share).member_threshod);
